@@ -3,6 +3,16 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { messages } from "~lib/messaging"
 import type { HostInfo } from "~lib/api/hosts"
 
+function formatDate(dateString: string): string {
+  const date = new Date(dateString)
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  })
+}
+
 type HostStatus = "up" | "down" | "unknown"
 
 function getStatusFromString(status: string): HostStatus {
@@ -267,7 +277,7 @@ function HostRow({ host }: HostRowProps) {
         </p>
         {host.check_time && (
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
-            Last checked: {host.check_time}
+            Last checked: {formatDate(host.check_time)}
           </p>
         )}
       </div>

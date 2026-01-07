@@ -2,6 +2,8 @@ import { AlertCircle, Check, Copy, Download, RefreshCw, Trash2 } from "lucide-re
 import { useState, useEffect, useCallback } from "react"
 import { messages } from "~lib/messaging"
 import type { DownloadItem } from "~lib/api/downloads"
+import type { UnrestrictedLink } from "~lib/api/unrestrict"
+import { UnrestrictInput } from "~components/UnrestrictInput"
 
 // NOTE: Streaming feature disabled - Real-Debrid API returns "not_allowed_method" error (code 4)
 // for GET /streaming/transcode/{id} and GET /streaming/mediaInfos/{id} endpoints despite
@@ -83,6 +85,16 @@ export function DownloadsSection() {
     setActionLoading(null)
   }
 
+  const handleUnrestrict = async (link: string): Promise<UnrestrictedLink> => {
+    const response = await messages.unrestrictLink(link)
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? "Failed to unrestrict link")
+    }
+    // Refresh downloads list after unrestricting
+    fetchDownloads()
+    return response.data
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -103,6 +115,14 @@ export function DownloadsSection() {
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           Refresh
         </button>
+      </div>
+
+      {/* Unrestrict Input */}
+      <div className="py-4 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
+        <h2 className="px-4 text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-2">
+          Unrestrict Link
+        </h2>
+        <UnrestrictInput onUnrestrict={handleUnrestrict} />
       </div>
 
       {/* Stats */}
