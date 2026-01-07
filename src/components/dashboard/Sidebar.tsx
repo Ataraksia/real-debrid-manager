@@ -1,4 +1,6 @@
 import { ChevronLeft, Download, ExternalLink, HardDrive, Server, Settings, User } from "lucide-react"
+
+import logoImage from "data-base64:~assets/logo.png"
 import { useState, useEffect } from "react"
 
 // NOTE: "traffic" section disabled - Real-Debrid API returns "not_allowed_method" error (code 4)
@@ -69,9 +71,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
       {/* Logo */}
       <div className={`flex items-center h-14 px-4 border-b border-neutral-200 dark:border-neutral-800 ${isCollapsed ? "justify-center" : ""}`}>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">RD</span>
-          </div>
+          <img src={logoImage} alt="Real-Debrid" className="w-8 h-8" />
           {!isCollapsed && (
             <span className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 tracking-tight">
               RD Manager
