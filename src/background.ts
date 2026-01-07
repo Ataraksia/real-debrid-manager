@@ -367,12 +367,39 @@ const handleUnrestrictFolder: MessageHandler<"UNRESTRICT_FOLDER"> = async (paylo
 
 const handleListTorrents: MessageHandler<"LIST_TORRENTS"> = async (payload) => {
   const token = await getValidToken();
-  return withErrorHandling(() =>
-    listTorrents(token, {
+  return withErrorHandling(async () => {
+    const torrents = await listTorrents(token, {
       offset: payload?.offset,
       limit: payload?.limit,
-    })
-  );
+    });
+
+    // Enrich torrents with magnet_conversion status to get accurate status
+    // The list endpoint may show magnet_conversion when torrent is actually waiting_files_selection
+    const conversionTorrents = torrents.filter(t => t.status === "magnet_conversion");
+    if (conversionTorrents.length > 0) {
+      const enrichedStatuses = await Promise.all(
+        conversionTorrents.map(async (t) => {
+          try {
+            const info = await getTorrentInfo(token, t.id);
+            return { id: t.id, status: info.status };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (const enriched of enrichedStatuses) {
+        if (enriched) {
+          const torrent = torrents.find(t => t.id === enriched.id);
+          if (torrent && torrent.status !== enriched.status) {
+            torrent.status = enriched.status;
+          }
+        }
+      }
+    }
+
+    return torrents;
+  });
 };
 
 const handleGetTorrentInfo: MessageHandler<"GET_TORRENT_INFO"> = async (payload) => {
