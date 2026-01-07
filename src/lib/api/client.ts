@@ -94,17 +94,14 @@ export async function request<TResponse, TBody = unknown>(
   // Rate limit check
   await waitForRateLimit();
 
-  // Build URL with auth_token as query parameter (more reliable than header for some endpoints)
-  let url = `${BASE_URL}${path}`;
+  const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {};
 
   if (!skipAuth) {
     if (!token) {
       throw new RealDebridApiError("Authorization token is required", 401);
     }
-    // Use query parameter auth instead of header (works better with Real-Debrid API)
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}auth_token=${encodeURIComponent(token)}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const fetchOptions: RequestInit = {
