@@ -181,6 +181,12 @@ function LoginPrompt({ onLoginComplete }: { onLoginComplete: () => void }) {
       // Start OAuth flow in background
       const response = await chrome.runtime.sendMessage({ type: "START_OAUTH" })
 
+      if (!response) {
+        setError("Extension not ready. Please try again.")
+        setStatus("error")
+        return
+      }
+
       if (response.error) {
         setError(response.error)
         setStatus("error")
@@ -197,6 +203,10 @@ function LoginPrompt({ onLoginComplete }: { onLoginComplete: () => void }) {
           const statusResponse = await chrome.runtime.sendMessage({
             type: "CHECK_OAUTH_STATUS",
           })
+
+          if (!statusResponse) {
+            return
+          }
 
           if (statusResponse.status === "success") {
             if (pollIntervalRef.current) {

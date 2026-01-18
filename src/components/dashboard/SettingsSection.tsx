@@ -73,7 +73,7 @@ export function SettingsSection() {
   })
 
   // Merge with defaults for complete preferences object
-  const preferences = { ...DEFAULT_PREFERENCES, ...storedPreferences }
+  const preferences = { ...DEFAULT_PREFERENCES, ...(storedPreferences ?? {}) }
 
   const [saving, setSaving] = useState(false)
   const [clearingCache, setClearingCache] = useState(false)
@@ -114,15 +114,6 @@ export function SettingsSection() {
       window.close()
     }
     setSigningOut(false)
-  }
-
-  // Show loading state while preferences are being fetched
-  if (storedPreferences === undefined) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
   }
 
   return (

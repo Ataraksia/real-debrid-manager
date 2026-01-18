@@ -10,6 +10,7 @@ import {
   type AuthData,
   OAuthFlow,
   type DeviceCodeResponse,
+  refreshAccessToken,
 } from "~lib/auth";
 import {
   getUser,
@@ -274,6 +275,32 @@ async function getValidToken(): Promise<string> {
   return authData.accessToken;
 }
 
+async function attemptTokenRefresh(): Promise<boolean> {
+  try {
+    const authData = await storage.getAuthData();
+    if (!authData?.clientId || !authData?.clientSecret || !authData?.refreshToken) {
+      return false;
+    }
+
+    const tokenResponse = await refreshAccessToken(
+      authData.clientId,
+      authData.clientSecret,
+      authData.refreshToken
+    );
+
+    await storage.setAuthData({
+      ...authData,
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token,
+      expiresAt: Date.now() + tokenResponse.expires_in * 1000,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function withErrorHandling<T>(
   fn: () => Promise<T>
 ): Promise<{ success: boolean; data?: T; error?: string; errorCode?: number }> {
@@ -282,8 +309,20 @@ async function withErrorHandling<T>(
     return { success: true, data };
   } catch (err) {
     if (err instanceof RealDebridApiError) {
-      // Handle 401 errors - clear auth data
       if (err.status === 401) {
+        const refreshed = await attemptTokenRefresh();
+        if (refreshed) {
+          try {
+            const data = await fn();
+            return { success: true, data };
+          } catch (retryErr) {
+            await storage.removeAuthData();
+            if (retryErr instanceof RealDebridApiError) {
+              return { success: false, error: retryErr.message, errorCode: retryErr.code };
+            }
+            return { success: false, error: retryErr instanceof Error ? retryErr.message : "Unknown error" };
+          }
+        }
         await storage.removeAuthData();
       }
       return { success: false, error: err.message, errorCode: err.code };
