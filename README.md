@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/Chrome-Install-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Firefox-Install-FF7139?logo=firefox&logoColor=white" alt="Firefox Add-ons"></a>
+  <a href="https://chromewebstore.google.com/detail/real-debrid-manager/fengaeiifddaadaibopcibcdakiaaian"><img src="https://img.shields.io/badge/Chrome-Install-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/realdebrid-manager/"><img src="https://img.shields.io/badge/Firefox-Install-FF7139?logo=firefox&logoColor=white" alt="Firefox Add-ons"></a>
   <img src="https://img.shields.io/badge/Safari-supported-006CFF?logo=safari&logoColor=white" alt="Safari Supported">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 </p>
@@ -69,8 +69,8 @@
 
 ### Browser Stores
 
-- **Chrome**: [Chrome Web Store](#) <!-- TODO: Add link -->
-- **Firefox**: [Firefox Add-ons](#) <!-- TODO: Add link -->
+- **Chrome**: [Chrome Web Store](https://chromewebstore.google.com/detail/real-debrid-manager/fengaeiifddaadaibopcibcdakiaaian)
+- **Firefox**: [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/realdebrid-manager/)
 
 ### Safari
 
