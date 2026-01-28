@@ -150,7 +150,20 @@ export function DetectedLinks({
   onScan,
   onUnrestrict,
 }: DetectedLinksProps) {
-  const [linkStates, setLinkStates] = useState<Record<string, UnrestrictedState>>({})
+  // Initialize states with any already unrestricted links
+  const [linkStates, setLinkStates] = useState<Record<string, UnrestrictedState>>(() => {
+    const states: Record<string, UnrestrictedState> = {}
+    for (const link of links) {
+      if (link.unrestrictedLink) {
+        states[link.url] = {
+          loading: false,
+          result: link.unrestrictedLink
+        }
+      }
+    }
+    return states
+  })
+  
   const [isUnrestrictingAll, setIsUnrestrictingAll] = useState(false)
 
   // Reset link states when links change (new scan)
@@ -158,7 +171,17 @@ export function DetectedLinks({
   const [prevLinksKey, setPrevLinksKey] = useState(linksKey)
   if (linksKey !== prevLinksKey) {
     setPrevLinksKey(linksKey)
-    setLinkStates({})
+    // When resetting, preserve any new unrestricted links from the new list
+    const newStates: Record<string, UnrestrictedState> = {}
+    for (const link of links) {
+      if (link.unrestrictedLink) {
+        newStates[link.url] = {
+          loading: false,
+          result: link.unrestrictedLink
+        }
+      }
+    }
+    setLinkStates(newStates)
   }
 
   const handleUnrestrict = async (link: DetectedLink) => {

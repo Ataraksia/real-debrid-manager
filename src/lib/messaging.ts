@@ -17,6 +17,7 @@ export interface DetectedLink {
   url: string;
   host: string;
   type: "hoster" | "magnet";
+  unrestrictedLink?: UnrestrictedLink;
 }
 
 /**

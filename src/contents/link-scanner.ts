@@ -2,11 +2,12 @@
  * Content Script: Link Scanner
  *
  * Scans the current page for supported hoster links and magnet links.
- * Triggered on-demand via messages from the popup.
+ * Triggered on-demand via messages from the popup or automatically via MutationObserver.
  */
 
 import type { PlasmoCSConfig } from "plasmo";
-import { success, error, type Message, type DetectedLink } from "~lib/messaging";
+import { success, error, type Message, type DetectedLink, sendMessage } from "~lib/messaging";
+import type { UnrestrictedLink } from "~lib/api/unrestrict";
 
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"],
@@ -19,6 +20,16 @@ export const config: PlasmoCSConfig = {
 let cachedHostsRegex: RegExp[] | null = null;
 let cachedHostsRegexTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * State for debouncing scans
+ */
+let scanTimeout: NodeJS.Timeout | null = null;
+const SCAN_DEBOUNCE_MS = 1000;
+let isScanning = false;
+let observer: MutationObserver | null = null;
+const processedLinks = new Set<string>();
+const unrestrictedCache = new Map<string, UnrestrictedLink>();
 
 /**
  * Fetch hosts regex from background script
@@ -83,6 +94,67 @@ function matchesHosterPattern(url: string, patterns: RegExp[]): boolean {
 }
 
 /**
+ * Extract URLs from text content
+ */
+function extractUrlsFromText(text: string): string[] {
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+  const matches = text.match(urlRegex);
+  return matches || [];
+}
+
+/**
+ * Scan text nodes for links
+ */
+function scanTextNodes(patterns: RegExp[]): DetectedLink[] {
+  const detectedLinks: DetectedLink[] = [];
+  const seenUrls = new Set<string>();
+  
+  // Create a TreeWalker to find text nodes
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        // Skip script and style tags
+        if (
+          node.parentElement?.tagName === "SCRIPT" ||
+          node.parentElement?.tagName === "STYLE" ||
+          node.parentElement?.tagName === "NOSCRIPT"
+        ) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (!node.nodeValue) continue;
+    
+    const urls = extractUrlsFromText(node.nodeValue);
+    for (const url of urls) {
+      if (seenUrls.has(url)) continue;
+      
+      // Clean up URL (remove trailing punctuation that might have been captured)
+      const cleanUrl = url.replace(/[.,;)]+$/, "");
+      
+      if (matchesHosterPattern(cleanUrl, patterns)) {
+        seenUrls.add(cleanUrl);
+        detectedLinks.push({
+          url: cleanUrl,
+          host: extractHost(cleanUrl),
+          type: "hoster",
+          unrestrictedLink: unrestrictedCache.get(cleanUrl)
+        });
+      }
+    }
+  }
+
+  return detectedLinks;
+}
+
+/**
  * Scan the page for all links
  */
 async function scanPageForLinks(): Promise<DetectedLink[]> {
@@ -121,7 +193,17 @@ async function scanPageForLinks(): Promise<DetectedLink[]> {
         url: href,
         host: extractHost(href),
         type: "hoster",
+        unrestrictedLink: unrestrictedCache.get(href)
       });
+    }
+  }
+
+  // Scan text nodes for non-anchor links
+  const textLinks = scanTextNodes(hostsRegex);
+  for (const link of textLinks) {
+    if (!seenUrls.has(link.url)) {
+      seenUrls.add(link.url);
+      detectedLinks.push(link);
     }
   }
 
@@ -140,6 +222,7 @@ chrome.runtime.onMessage.addListener(
     if (message.type === "SCAN_PAGE_LINKS") {
       scanPageForLinks()
         .then((links) => {
+          reportLinksToBackground(links);
           sendResponse(success(links));
         })
         .catch((err) => {
@@ -157,13 +240,17 @@ chrome.runtime.onMessage.addListener(
 );
 
 /**
- * Check if auto-scan is enabled from preferences
+ * Get user preferences
  */
-async function isAutoScanEnabled(): Promise<boolean> {
-  return new Promise((resolve) => {
+async function getPreferences() {
+  return new Promise<{ autoScanEnabled: boolean; autoUnrestrict: boolean }>((resolve) => {
     chrome.storage.sync.get("preferences", (result) => {
       const prefs = result.preferences || {};
-      resolve(prefs.autoScanEnabled === true);
+      resolve({
+        // Default to true if undefined
+        autoScanEnabled: prefs.autoScanEnabled !== false,
+        autoUnrestrict: prefs.autoUnrestrict !== false
+      });
     });
   });
 }
@@ -184,26 +271,126 @@ function reportLinksToBackground(links: DetectedLink[]): void {
 }
 
 /**
- * Perform auto-scan and report results to background
+ * Auto-unrestrict links
  */
-async function performAutoScan(): Promise<void> {
-  try {
-    const links = await scanPageForLinks();
+async function autoUnrestrictLinks(links: DetectedLink[]) {
+  const hosterLinks = links.filter(l => l.type === "hoster");
+  let hasNewUnrestrictions = false;
+  
+  for (const link of hosterLinks) {
+    // Skip if already processed in this session
+    if (processedLinks.has(link.url)) continue;
+    processedLinks.add(link.url);
+
+    try {
+      const result = await sendMessage({
+        type: "UNRESTRICT_LINK",
+        payload: { link: link.url }
+      });
+      
+      if (result.success && result.data) {
+        unrestrictedCache.set(link.url, result.data);
+        link.unrestrictedLink = result.data;
+        hasNewUnrestrictions = true;
+      }
+    } catch (err) {
+      console.error("[Real-Debrid] Auto-unrestrict failed for:", link.url, err);
+    }
+  }
+
+  // If we have new unrestrictions, report updated links to background
+  if (hasNewUnrestrictions) {
     reportLinksToBackground(links);
-  } catch (err) {
-    console.error("[Real-Debrid] Auto-scan failed:", err);
   }
 }
 
 /**
- * Initialize auto-scan on page load
+ * Perform auto-scan and report results to background
+ */
+async function performAutoScan(): Promise<void> {
+  if (isScanning) return;
+  isScanning = true;
+
+  try {
+    const { autoScanEnabled, autoUnrestrict } = await getPreferences();
+    
+    if (!autoScanEnabled) {
+      isScanning = false;
+      return;
+    }
+
+    const links = await scanPageForLinks();
+    
+    // Only report/unrestrict if we found something
+    if (links.length > 0) {
+      reportLinksToBackground(links);
+      
+      if (autoUnrestrict) {
+        await autoUnrestrictLinks(links);
+      }
+    }
+  } catch (err) {
+    console.error("[Real-Debrid] Auto-scan failed:", err);
+  } finally {
+    isScanning = false;
+  }
+}
+
+/**
+ * Trigger a debounced scan
+ */
+function triggerScan() {
+  if (scanTimeout) {
+    clearTimeout(scanTimeout);
+  }
+  scanTimeout = setTimeout(() => {
+    performAutoScan();
+  }, SCAN_DEBOUNCE_MS);
+}
+
+/**
+ * Initialize auto-scan
  */
 async function initAutoScan(): Promise<void> {
-  const enabled = await isAutoScanEnabled();
-  if (!enabled) return;
-
-  // Page is already at document_idle, so we can scan immediately
-  performAutoScan();
+  const { autoScanEnabled } = await getPreferences();
+  
+  if (autoScanEnabled) {
+    // Initial scan
+    performAutoScan();
+    
+    // Set up observer for future changes
+    if (!observer) {
+      observer = new MutationObserver((mutations) => {
+        // Simple check: if any nodes were added, trigger scan
+        let shouldScan = false;
+        for (const mutation of mutations) {
+          if (mutation.addedNodes.length > 0) {
+            shouldScan = true;
+            break;
+          }
+        }
+        
+        if (shouldScan) {
+          triggerScan();
+        }
+      });
+      
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    }
+  } else {
+    // Clean up if disabled
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+    if (scanTimeout) {
+      clearTimeout(scanTimeout);
+      scanTimeout = null;
+    }
+  }
 }
 
 /**
@@ -211,13 +398,7 @@ async function initAutoScan(): Promise<void> {
  */
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync" && changes.preferences) {
-    const oldPrefs = changes.preferences.oldValue || {};
-    const newPrefs = changes.preferences.newValue || {};
-
-    // If auto-scan was just enabled, perform a scan
-    if (!oldPrefs.autoScanEnabled && newPrefs.autoScanEnabled) {
-      performAutoScan();
-    }
+    initAutoScan();
   }
 });
 
